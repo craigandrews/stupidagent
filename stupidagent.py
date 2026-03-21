@@ -31,6 +31,8 @@ def replace_file_references(text: str) -> str:
 
     def replacer(match):
         path = match.group(1)
+        print("READING FILE:")
+        print(path)
         content = read_file(path)
         return f"\n\n--- Content of {path} ---\n{content}\n--- End of {path} ---\n\n"
 
