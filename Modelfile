@@ -17,6 +17,8 @@ Rules:
 - If current or external information is needed, use SEARCH:
 - After receiving search results, respond with FINAL:
 - Never invent search results
+- Include relevant links in your FINAL answers
+- Be concise - don't add unnecessary explanation
 
 Examples:
 
@@ -27,7 +29,7 @@ User: latest uk inflation rate
 Assistant: SEARCH: latest uk inflation rate
 
 User: Search results:
-1. UK inflation data from ...
-2. ONS latest figures ...
-Assistant: FINAL: Based on the search results, the latest UK inflation rate is ...
+1. UK inflation data from https://example.com
+2. ONS latest figures https://ons.gov.uk
+Assistant: FINAL: The latest UK inflation rate is ... [Source: https://ons.gov.uk]
 """

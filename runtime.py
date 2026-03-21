@@ -1,5 +1,6 @@
 import os
-from typing import Dict, List, Tuple
+import re
+from typing import Dict, List, Tuple, NamedTuple
 
 import requests
 from dotenv import load_dotenv
@@ -9,6 +10,12 @@ load_dotenv()
 MODEL_NAME = "simple-agent"
 BRAVE_API_KEY = os.getenv("BRAVE_API_KEY")
 CONTEXT_WINDOW_TOKENS = int(os.getenv("CONTEXT_WINDOW_TOKENS", "4096"))
+
+
+class SearchResult(NamedTuple):
+    title: str
+    url: str
+    snippet: str
 
 
 def count_tokens(text: str) -> int:
@@ -25,7 +32,7 @@ def compress_context(messages: List[Dict[str, str]]) -> List[Dict[str, str]]:
     summary_prompt = (
         "Summarize the following conversation history in a concise manner. "
         "Preserve key facts, decisions, and search queries. "
-        "Do not include search results in the summary.\n\n"
+        "List any URLs mentioned in clear format.\n\n"
         "Conversation history:\n"
         + "\n".join(
             f"{m['role'].upper()}: {m['content']}"
@@ -38,7 +45,12 @@ def compress_context(messages: List[Dict[str, str]]) -> List[Dict[str, str]]:
     return [{"role": "system", "content": f"Previous conversation summary:\n{summary}"}] + recent_messages
 
 
-def web_search(query: str, count: int = 5) -> str:
+def extract_links(text: str) -> List[str]:
+    url_pattern = r'https?://[^\s<>"\']+|www\.[^\s<>"\']+'
+    return re.findall(url_pattern, text)
+
+
+def web_search(query: str, count: int = 5) -> Tuple[str, List[SearchResult]]:
     if not BRAVE_API_KEY:
         raise ValueError("BRAVE_API_KEY not set")
 
@@ -56,20 +68,22 @@ def web_search(query: str, count: int = 5) -> str:
     resp.raise_for_status()
     data = resp.json()
 
-    results = data.get("web", {}).get("results", [])
-    if not results:
-        return f"No results found for query: {query}"
+    results_data = data.get("web", {}).get("results", [])
+    if not results_data:
+        return f"No results found for query: {query}", []
 
+    results: List[SearchResult] = []
     lines = []
-    for i, r in enumerate(results[:count], start=1):
+    for i, r in enumerate(results_data[:count], start=1):
         title = (r.get("title") or "").strip()
         url = (r.get("url") or "").strip()
         desc = (r.get("description") or "").strip()
         if len(desc) > 300:
             desc = desc[:300] + "..."
         lines.append(f"{i}. {title}\nURL: {url}\nSnippet: {desc}")
+        results.append(SearchResult(title=title, url=url, snippet=desc))
 
-    return "\n\n".join(lines)
+    return "\n\n".join(lines), results
 
 
 def call_ollama(messages: List[Dict[str, str]], model: str = MODEL_NAME) -> str:
@@ -124,12 +138,7 @@ def run_agent(user_input: str, messages: List[Dict[str, str]], max_steps: int = 
             messages.append({"role": "assistant", "content": model_output})
             messages.append({
                 "role": "user",
-                "content": (
-                    "Your last response was invalid.\n"
-                    "Reply in exactly one of these formats:\n"
-                    "SEARCH: <query>\n"
-                    "FINAL: <answer>"
-                ),
+                "content": "Invalid format. Use exactly: SEARCH: <query> or FINAL: <answer>",
             })
             continue
 
@@ -139,25 +148,30 @@ def run_agent(user_input: str, messages: List[Dict[str, str]], max_steps: int = 
 
         if action_type == "search":
             try:
-                results = web_search(payload)
+                results_text, results = web_search(payload)
             except Exception as e:
-                results = f"Search failed: {e}"
+                results_text = f"Search failed: {e}"
+                results = []
 
             print("SEARCH QUERY:")
             print(payload)
             print("SEARCH RESULTS:")
-            print(results)
+            print(results_text)
+
+            link_context = ""
+            if results:
+                link_context = "\n\nRelevant links:\n" + "\n".join(
+                    f"- {r.url}" for r in results
+                )
 
             messages.append({"role": "assistant", "content": model_output})
             messages.append({
                 "role": "user",
                 "content": (
-                    "Search results:\n"
-                    f"{results}\n\n"
-                    "Now answer the original question.\n"
-                    "Reply in exactly this format:\n"
-                    "FINAL: <answer>"
-                ),
+                    f"Search results:\n{results_text}\n\n"
+                    "Answer directly. Include links if relevant. "
+                    "Format: FINAL: <answer>"
+                ) + link_context,
             })
             continue
 
