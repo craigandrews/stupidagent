@@ -2,6 +2,8 @@
 
 A simple web-searching agent powered by Ollama and the Brave Search API.
 
+It's really stupid.
+
 ## What It Does
 
 The agent engages in conversation, performs web searches when needed, and provides answers with source links. It operates in an iterative loop:
