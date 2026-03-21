@@ -18,6 +18,25 @@ class SearchResult(NamedTuple):
     snippet: str
 
 
+def read_file(path: str) -> str:
+    try:
+        with open(path, 'r', encoding='utf-8') as f:
+            return f.read()
+    except Exception as e:
+        return f"[Error reading {path}: {e}]"
+
+
+def replace_file_references(text: str) -> str:
+    pattern = r'@(\S+)'
+    
+    def replacer(match):
+        path = match.group(1)
+        content = read_file(path)
+        return f"\n\n--- Content of {path} ---\n{content}\n--- End of {path} ---\n\n"
+    
+    return re.sub(pattern, replacer, text)
+
+
 def count_tokens(text: str) -> int:
     return len(text) // 4
 
@@ -123,6 +142,7 @@ def parse_action(text: str):
 
 
 def run_agent(user_input: str, messages: List[Dict[str, str]], max_steps: int = 5) -> Tuple[str, List[Dict[str, str]]]:
+    user_input = replace_file_references(user_input)
     messages = messages.copy()
     messages.append({"role": "user", "content": user_input})
 
