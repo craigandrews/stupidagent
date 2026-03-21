@@ -7,7 +7,7 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-MODEL_NAME = "simple-agent"
+MODEL_NAME = os.getenv("MODEL_NAME", "stupid-agent")
 BRAVE_API_KEY = os.getenv("BRAVE_API_KEY")
 CONTEXT_WINDOW_TOKENS = int(os.getenv("CONTEXT_WINDOW_TOKENS", "4096"))
 
@@ -28,12 +28,12 @@ def read_file(path: str) -> str:
 
 def replace_file_references(text: str) -> str:
     pattern = r'@(\S+)'
-    
+
     def replacer(match):
         path = match.group(1)
         content = read_file(path)
         return f"\n\n--- Content of {path} ---\n{content}\n--- End of {path} ---\n\n"
-    
+
     return re.sub(pattern, replacer, text)
 
 
@@ -44,10 +44,10 @@ def count_tokens(text: str) -> int:
 def compress_context(messages: List[Dict[str, str]]) -> List[Dict[str, str]]:
     if len(messages) <= 3:
         return messages
-    
+
     recent_messages = messages[-3:]
     history = messages[:-3]
-    
+
     summary_prompt = (
         "Summarize the following conversation history in a concise manner. "
         "Preserve key facts, decisions, and search queries. "
@@ -58,9 +58,9 @@ def compress_context(messages: List[Dict[str, str]]) -> List[Dict[str, str]]:
             for m in history
         )
     )
-    
+
     summary = call_ollama([{"role": "user", "content": summary_prompt}])
-    
+
     return [{"role": "system", "content": f"Previous conversation summary:\n{summary}"}] + recent_messages
 
 
@@ -205,11 +205,11 @@ if __name__ == "__main__":
             user_input = input("User: ").strip()
             if user_input.lower() == "exit":
                 break
-            
+
             answer, messages = run_agent(user_input, messages)
             print("\nFINAL ANSWER:")
             print(answer)
-            
+
             total_tokens = sum(count_tokens(m["content"]) for m in messages)
             if total_tokens > CONTEXT_WINDOW_TOKENS:
                 messages = compress_context(messages)
