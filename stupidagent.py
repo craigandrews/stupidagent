@@ -182,6 +182,13 @@ def run_agent(user_input: str, messages: List[Dict[str, str]], max_steps: int = 
 
     for step in range(max_steps):
         debug_print(f"\n--- STEP {step + 1} ---")
+
+        if step == max_steps - 1:
+            messages.append({
+                "role": "user",
+                "content": "This is your final response. You MUST use FINAL: format."
+            })
+
         model_output = call_ollama(messages)
         debug_print("MODEL OUTPUT:", model_output)
 
@@ -191,13 +198,14 @@ def run_agent(user_input: str, messages: List[Dict[str, str]], max_steps: int = 
             messages.append({"role": "assistant", "content": model_output})
             messages.append({
                 "role": "user",
-                "content": "Invalid format. Use exactly: SEARCH: <query> or FINAL: <answer>",
+                "content": "Invalid format. Use a valid format.",
             })
             continue
 
         if action_type == "thinking":
             messages.append({"role": "assistant", "content": model_output})
-            print(f"-- {payload}")
+            messages.append({"role": "user", "content": "continue"})
+            print(f"... {payload}")
             continue
 
         if action_type == "final":
