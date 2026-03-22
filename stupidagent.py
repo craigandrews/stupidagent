@@ -1,11 +1,25 @@
+import argparse
 import os
 import re
+import subprocess
 from typing import Dict, List, Tuple, NamedTuple
 
 import requests
 from dotenv import load_dotenv
 
 load_dotenv()
+
+parser = argparse.ArgumentParser()
+parser.add_argument("--debug", action="store_true", help="Enable debug mode with verbose output")
+args = parser.parse_args()
+
+DEBUG = args.debug
+
+
+def debug_print(*args):
+    if DEBUG:
+        print(*args)
+
 
 MODEL_NAME = os.getenv("MODEL_NAME", "stupid-agent")
 BRAVE_API_KEY = os.getenv("BRAVE_API_KEY")
@@ -19,6 +33,7 @@ class SearchResult(NamedTuple):
 
 
 def read_file(path: str) -> str:
+    path = path.lstrip('@')
     try:
         with open(path, 'r', encoding='utf-8') as f:
             return f.read()
@@ -31,8 +46,7 @@ def replace_file_references(text: str) -> str:
 
     def replacer(match):
         path = match.group(1)
-        print("READING FILE:")
-        print(path)
+        debug_print("READING FILE:", path)
         content = read_file(path)
         return f"\n\n--- Content of {path} ---\n{content}\n--- End of {path} ---\n\n"
 
@@ -128,11 +142,29 @@ def call_ollama(messages: List[Dict[str, str]], model: str = MODEL_NAME) -> str:
 def parse_action(text: str):
     text = text.strip()
 
+    if text.startswith("THINKING:"):
+        thought = text[len("THINKING:"):].strip()
+        if not thought:
+            raise ValueError("Empty THINKING output")
+        return ("thinking", thought)
+
     if text.startswith("SEARCH:"):
         query = text[len("SEARCH:"):].strip()
         if not query:
             raise ValueError("Empty SEARCH query")
         return ("search", query)
+
+    if text.startswith("SHELL:"):
+        command = text[len("SHELL:"):].strip()
+        if not command:
+            raise ValueError("Empty SHELL command")
+        return ("shell", command)
+
+    if text.startswith("READ:"):
+        filename = text[len("READ:"):].strip()
+        if not filename:
+            raise ValueError("Empty READ filename")
+        return ("read", filename)
 
     if text.startswith("FINAL:"):
         answer = text[len("FINAL:"):].strip()
@@ -149,10 +181,9 @@ def run_agent(user_input: str, messages: List[Dict[str, str]], max_steps: int = 
     messages.append({"role": "user", "content": user_input})
 
     for step in range(max_steps):
-        print(f"\n--- STEP {step + 1} ---")
+        debug_print(f"\n--- STEP {step + 1} ---")
         model_output = call_ollama(messages)
-        print("MODEL OUTPUT:")
-        print(model_output)
+        debug_print("MODEL OUTPUT:", model_output)
 
         try:
             action_type, payload = parse_action(model_output)
@@ -162,6 +193,11 @@ def run_agent(user_input: str, messages: List[Dict[str, str]], max_steps: int = 
                 "role": "user",
                 "content": "Invalid format. Use exactly: SEARCH: <query> or FINAL: <answer>",
             })
+            continue
+
+        if action_type == "thinking":
+            messages.append({"role": "assistant", "content": model_output})
+            print(f"-- {payload}")
             continue
 
         if action_type == "final":
@@ -175,10 +211,8 @@ def run_agent(user_input: str, messages: List[Dict[str, str]], max_steps: int = 
                 results_text = f"Search failed: {e}"
                 results = []
 
-            print("SEARCH QUERY:")
-            print(payload)
-            print("SEARCH RESULTS:")
-            print(results_text)
+            debug_print("SEARCH QUERY:", payload)
+            debug_print("SEARCH RESULTS:", results_text)
 
             link_context = ""
             if results:
@@ -197,6 +231,52 @@ def run_agent(user_input: str, messages: List[Dict[str, str]], max_steps: int = 
             })
             continue
 
+        if action_type == "shell":
+            try:
+                result = subprocess.run(
+                    ["bash", "-c", payload],
+                    capture_output=True,
+                    text=True,
+                    timeout=30
+                )
+                output = result.stdout
+                if result.stderr:
+                    output += f"\n[STDERR]\n{result.stderr}"
+                if result.returncode != 0:
+                    output += f"\n[Exit code: {result.returncode}]"
+            except Exception as e:
+                output = f"Shell command failed: {e}"
+
+            debug_print("SHELL COMMAND:", payload)
+            debug_print("SHELL OUTPUT:", output)
+
+            messages.append({"role": "assistant", "content": model_output})
+            messages.append({
+                "role": "user",
+                "content": (
+                    f"Shell command output:\n{output}\n\n"
+                    "Answer directly based on the output. "
+                    "Format: FINAL: <answer>"
+                ),
+            })
+            continue
+
+        if action_type == "read":
+            content = read_file(payload)
+            debug_print("READ FILE:", payload)
+            debug_print("FILE CONTENT:", content)
+
+            messages.append({"role": "assistant", "content": model_output})
+            messages.append({
+                "role": "user",
+                "content": (
+                    f"Content of {payload}:\n{content}\n\n"
+                    "Answer directly based on the file content. "
+                    "Format: FINAL: <answer>"
+                ),
+            })
+            continue
+
     return "Agent stopped after reaching max_steps without producing a final answer.", messages
 
 
@@ -204,18 +284,17 @@ if __name__ == "__main__":
     messages = []
     try:
         while True:
-            user_input = input("User: ").strip()
+            user_input = input(">>> ").strip()
             if user_input.lower() == "exit":
                 break
 
             answer, messages = run_agent(user_input, messages)
-            print("\nFINAL ANSWER:")
             print(answer)
 
             total_tokens = sum(count_tokens(m["content"]) for m in messages)
             if total_tokens > CONTEXT_WINDOW_TOKENS:
                 messages = compress_context(messages)
-                print("\n[Context compressed to maintain performance]")
+                debug_print("\n[Context compressed to maintain performance]")
     except EOFError:
         pass
     print("\nGoodbye!")
