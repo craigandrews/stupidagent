@@ -18,7 +18,10 @@ SHELL: <command>
 4. To read a file into the context:
 READ: <filename>
 
-5. To answer the user:
+5. To call an MCP tool:
+TOOL: server_name.tool_name {"param": "value"}
+
+6. To answer the user:
 FINAL: <answer>
 
 Rules:
@@ -29,6 +32,7 @@ Rules:
 - If current or external information is needed, use SEARCH:
 - If the output of a local command is needed, use SHELL:
 - If the contents of a local file are needed, use READ:
+- If a tool is available that can help, use TOOL: with JSON arguments
 - After receiving search results, respond with FINAL:
 - Never invent search results
 - Include relevant links in your FINAL answers
