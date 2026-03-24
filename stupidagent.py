@@ -297,6 +297,7 @@ if __name__ == "__main__":
                 break
 
             answer, messages = run_agent(user_input, messages)
+            debug_print("\nResponse:")
             print(answer)
 
             total_tokens = sum(count_tokens(m["content"]) for m in messages)
