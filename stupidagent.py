@@ -139,8 +139,11 @@ async def call_ollama(messages: List[Dict[str, str]], model: str = MODEL_NAME) -
                 "model": model,
                 "messages": messages,
                 "stream": False,
+                "think": True,
                 "options": {
-                    "temperature": 0,
+                    "temperature": 1,
+                    "top_p": 0.95,
+                    "top_k": 64
                 },
             },
             timeout=120,
@@ -149,6 +152,8 @@ async def call_ollama(messages: List[Dict[str, str]], model: str = MODEL_NAME) -
         return resp.json()
 
     data = await asyncio.to_thread(_post)
+    if "thinking" in data["message"]:
+        print("--think--", data["message"]["thinking"].replace("\n", " "))
     return data["message"]["content"].strip()
 
 
