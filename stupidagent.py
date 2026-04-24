@@ -22,6 +22,15 @@ parser.add_argument(
 parser.add_argument(
     "--mcp-config", default="mcp_servers.json", help="Path to MCP servers config file"
 )
+parser.add_argument(
+    "--show-thinking", action="store_true", help="Show thinking if present"
+)
+parser.add_argument(
+    "--context-length", default=4096, help="Context length in tokens"
+)
+parser.add_argument(
+    "--model-name", default="stupid-agent", help="The model to use"
+)
 args = parser.parse_args()
 
 DEBUG = args.debug
@@ -32,9 +41,9 @@ def debug_print(*a):
         print(*a)
 
 
-MODEL_NAME = os.getenv("MODEL_NAME", "stupid-agent")
+MODEL_NAME = os.getenv("MODEL_NAME", args.model_name)
 BRAVE_API_KEY = os.getenv("BRAVE_API_KEY")
-CONTEXT_WINDOW_TOKENS = int(os.getenv("CONTEXT_WINDOW_TOKENS", "4096"))
+CONTEXT_WINDOW_TOKENS = int(os.getenv("CONTEXT_WINDOW_TOKENS", args.context_length))
 
 
 class SearchResult(NamedTuple):
@@ -83,7 +92,7 @@ async def compress_context(messages: List[Dict[str, str]]) -> List[Dict[str, str
         + "\n".join(f"{m['role'].upper()}: {m['content']}" for m in history)
     )
 
-    summary = await call_ollama([{"role": "user", "content": summary_prompt}])
+    summary, _ = await call_ollama([{"role": "user", "content": summary_prompt}])
 
     return [
         {"role": "system", "content": f"Previous conversation summary:\n{summary}"}
@@ -131,7 +140,7 @@ def web_search(query: str, count: int = 5) -> Tuple[str, List[SearchResult]]:
     return "\n\n".join(lines), results
 
 
-async def call_ollama(messages: List[Dict[str, str]], model: str = MODEL_NAME) -> str:
+async def call_ollama(messages: List[Dict[str, str]], model: str = MODEL_NAME) -> Tuple[str, str|None]:
     def _post():
         resp = requests.post(
             "http://localhost:11434/api/chat",
@@ -152,9 +161,10 @@ async def call_ollama(messages: List[Dict[str, str]], model: str = MODEL_NAME) -
         return resp.json()
 
     data = await asyncio.to_thread(_post)
+    thinking = None
     if "thinking" in data["message"]:
-        print("--think--", data["message"]["thinking"].replace("\n", " "))
-    return data["message"]["content"].strip()
+        thinking = data["message"]["thinking"].replace("\n", " ")
+    return data["message"]["content"].strip(), thinking
 
 
 @dataclass
@@ -237,7 +247,13 @@ async def run_agent(
                 }
             )
 
-        model_output = await call_ollama(messages)
+        model_output, model_thinking = await call_ollama(messages)
+
+        if args.show_thinking:
+            print("--think--", model_thinking, "\n")
+        else:
+            debug_print("THINKING:", model_thinking)
+
         debug_print("MODEL OUTPUT:", model_output)
 
         try:
@@ -405,6 +421,8 @@ async def main():
             if total_tokens > CONTEXT_WINDOW_TOKENS:
                 messages = await compress_context(messages)
                 debug_print("\n[Context compressed to maintain performance]")
+
+            print()
     except EOFError:
         pass
     finally:

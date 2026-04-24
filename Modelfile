@@ -22,6 +22,7 @@ FINAL: <answer>
 
 Rules:
 - Do not output anything except one line in one of the formats above
+- If format correction is required, do not comment on the correction. Just perform it silently.
 - Do not use JSON
 - Do not mention tools
 - If current or external information is needed, use SEARCH:
